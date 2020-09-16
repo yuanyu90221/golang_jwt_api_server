@@ -3,72 +3,15 @@ package models
 import (
 	"errors"
 	"html"
+	"log"
 	"strings"
 	"time"
 
-	"github.com/badoux/checkmail"
-
+	"github.com/jinzhu/gorm"
 	"golang.org/x/crypto/bcrypt"
 )
 
-type validator interface {
-	validate(u *User) error
-}
-
-type DefaultAction struct {
-}
-
-func (a *DefaultAction) validate(u *User) error {
-	if u.Nickname == "" {
-		return errors.New("Required NickName")
-	}
-	if u.Passwd == "" {
-		return errors.New("Required Password")
-	}
-	if u.Email == "" {
-		return errors.New("Required Email")
-	}
-	if err := checkmail.ValidateFormat(u.Email); err != nil {
-		return errors.New("Invalid Email")
-	}
-	return nil
-}
-
-type updateAction struct {
-}
-
-func (a *updateAction) validate(u *User) error {
-	if u.Nickname == "" {
-		return errors.New("Required NickName")
-	}
-	if u.Passwd == "" {
-		return errors.New("Required Password")
-	}
-	if u.Email == "" {
-		return errors.New("Required Email")
-	}
-	if err := checkmail.ValidateFormat(u.Email); err != nil {
-		return errors.New("Invalid Email")
-	}
-	return nil
-}
-
-type loginAction struct {
-}
-
-func (a *loginAction) validate(u *User) error {
-	if u.Passwd == "" {
-		return errors.New("Required Password")
-	}
-	if u.Email == "" {
-		return errors.New("Required Email")
-	}
-	if err := checkmail.ValidateFormat(u.Email); err != nil {
-		return errors.New("Invalid Email")
-	}
-	return nil
-}
-
+//User model
 type User struct {
 	ID        uint32    `gorm:"primary_key;auto_increment" json:"id"`
 	Nickname  string    `gorm:"size:255;not null;unique" json:"nickname"`
@@ -78,14 +21,17 @@ type User struct {
 	UpdatedAt time.Time `gorm:"default:CURRENT_TIMESTAMP" json:"updated_at"`
 }
 
+//Hash func
 func Hash(passwd string) ([]byte, error) {
 	return bcrypt.GenerateFromPassword([]byte(passwd), bcrypt.DefaultCost)
 }
 
+//VerifyPasswd func
 func VerifyPasswd(hashedPasswd, passwd string) error {
 	return bcrypt.CompareHashAndPassword([]byte(hashedPasswd), []byte(passwd))
 }
 
+//BeforeSave func
 func (u *User) BeforeSave() error {
 	hashedPasswd, err := Hash(u.Passwd)
 	if err != nil {
@@ -95,6 +41,7 @@ func (u *User) BeforeSave() error {
 	return nil
 }
 
+//Prepare func
 func (u *User) Prepare() {
 	u.ID = 0
 	u.Nickname = html.EscapeString(strings.TrimSpace(u.Nickname))
@@ -103,6 +50,66 @@ func (u *User) Prepare() {
 	u.UpdatedAt = time.Now()
 }
 
-func (u *User) Validate(v validator) error {
+//Validate func
+func (u *User) Validate(v Validator) error {
 	return v.validate(u)
+}
+
+//FindAllUsers func
+func (u *User) FindAllUsers(db *gorm.DB) (*[]User, error) {
+	var err error
+	users := []User{}
+	err = db.Debug().Model(&User{}).Limit(100).Find(&users).Error
+	if err != nil {
+		return &[]User{}, err
+	}
+	return &users, err
+}
+
+//FindUserByID func
+func (u *User) FindUserByID(db *gorm.DB, uid uint32) (*User, error) {
+	var err error
+	err = db.Debug().Model(User{}).Where("id = ?", uid).Take(&u).Error
+	if err != nil {
+		return &User{}, err
+	}
+	if gorm.IsRecordNotFoundError(err) {
+		return &User{}, errors.New("User Not Found")
+	}
+	return u, err
+}
+
+//UpdateAUser func
+func (u *User) UpdateAUser(db *gorm.DB, uid uint32) (*User, error) {
+	// To hash the passwd
+	err := u.BeforeSave()
+	if err != nil {
+		log.Fatal(err)
+	}
+	db = db.Debug().Model(&User{}).Where("id = ?").Take(&User{}).UpdateColumn(
+		map[string]interface{}{
+			"passwd":     u.Passwd,
+			"nickname":   u.Nickname,
+			"email":      u.Email,
+			"updated_at": time.Now(),
+		},
+	)
+	if db.Error != nil {
+		return &User{}, db.Error
+	}
+	err = db.Debug().Model(&User{}).Where("id = ?", uid).Take(&u).Error
+	if err != nil {
+		return &User{}, err
+	}
+	return u, nil
+}
+
+//DeleteAUser func
+func (u *User) DeleteAUser(db *gorm.DB, uid uint32) (int64, error) {
+	db = db.Debug().Model(&User{}).Where("id = ?", uid).Take(&User{}).Delete(&User{})
+
+	if db.Error != nil {
+		return 0, db.Error
+	}
+	return db.RowsAffected, nil
 }
