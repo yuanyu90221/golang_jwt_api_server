@@ -50,6 +50,16 @@ func (u *User) Prepare() {
 	u.UpdatedAt = time.Now()
 }
 
+//SaveUser func
+func (u *User) SaveUser(db *gorm.DB) (*User, error) {
+	var err error
+	err = db.Debug().Create(&u).Error
+	if err != nil {
+		return &User{}, err
+	}
+	return u, nil
+}
+
 //Validate func
 func (u *User) Validate(v Validator) error {
 	return v.validate(u)

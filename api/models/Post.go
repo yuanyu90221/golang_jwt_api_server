@@ -95,6 +95,24 @@ func (p *Post) FindPostByID(db *gorm.DB, pid uint64) (*Post, error) {
 	return p, nil
 }
 
+//UpdateAPost method
+func (p *Post) UpdateAPost(db *gorm.DB) (*Post, error) {
+	var err error
+	err = db.Debug().Model(&Post{}).Where("id = ?", p.ID).Updates(Post{
+		Title: p.Title, Content: p.Content, UpdatedAt: time.Now(),
+	}).Error
+	if err != nil {
+		return &Post{}, err
+	}
+	if p.ID != 0 {
+		err = db.Debug().Model(&User{}).Where("id = ?", p.AuthorID).Take(&p.Author).Error
+		if err != nil {
+			return &Post{}, err
+		}
+	}
+	return p, nil
+}
+
 //DeleteAPost method
 func (p *Post) DeleteAPost(db *gorm.DB, pid uint64, uid uint32) (int64, error) {
 	db = db.Debug().Model(&Post{}).Where("id = ? and author_id = ?", pid, uid).Take(&Post{}).Delete(&Post{})
